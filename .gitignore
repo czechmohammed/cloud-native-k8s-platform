@@ -18,3 +18,4 @@ terraform/.terraform.lock.hcl
 
 # Kubernetes secrets
 *-secret.yaml
+microservices-demo/
