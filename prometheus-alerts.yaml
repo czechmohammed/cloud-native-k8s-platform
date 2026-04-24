@@ -1,0 +1,66 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: online-boutique-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus
+    app: kube-prometheus-stack
+spec:
+  groups:
+  - name: online-boutique
+    interval: 30s
+    rules:
+    - alert: HighPodCPUUsage
+      expr: |
+        (sum(rate(container_cpu_usage_seconds_total{namespace="default",container!="",container!="POD"}[5m])) by (pod) 
+        / sum(container_spec_cpu_quota{namespace="default",container!="",container!="POD"}/container_spec_cpu_period{namespace="default",container!="",container!="POD"}) by (pod)) * 100 > 80
+      for: 2m
+      labels:
+        severity: warning
+        namespace: default
+      annotations:
+        summary: "High CPU usage detected on pod {{ $labels.pod }}"
+        description: "Pod {{ $labels.pod }} is using {{ $value | humanize }}% of its CPU limit for more than 2 minutes."
+    
+    - alert: HighPodMemoryUsage
+      expr: |
+        (sum(container_memory_working_set_bytes{namespace="default",container!="",container!="POD"}) by (pod)
+        / sum(container_spec_memory_limit_bytes{namespace="default",container!="",container!="POD"}) by (pod)) * 100 > 80
+      for: 2m
+      labels:
+        severity: warning
+        namespace: default
+      annotations:
+        summary: "High memory usage detected on pod {{ $labels.pod }}"
+        description: "Pod {{ $labels.pod }} is using {{ $value | humanize }}% of its memory limit for more than 2 minutes."
+    
+    - alert: PodRestarting
+      expr: rate(kube_pod_container_status_restarts_total{namespace="default"}[15m]) > 0
+      for: 5m
+      labels:
+        severity: critical
+        namespace: default
+      annotations:
+        summary: "Pod {{ $labels.pod }} is restarting"
+        description: "Pod {{ $labels.pod }} has restarted {{ $value | humanize }} times in the last 15 minutes."
+    
+    - alert: RedisDown
+      expr: redis_up == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: redis
+      annotations:
+        summary: "Redis is down"
+        description: "Redis instance is not responding."
+    
+    - alert: HighRedisMemoryUsage
+      expr: redis_memory_used_bytes > 100000000
+      for: 5m
+      labels:
+        severity: warning
+        component: redis
+      annotations:
+        summary: "Redis memory usage is high"
+        description: "Redis is using {{ $value | humanize }}B of memory."

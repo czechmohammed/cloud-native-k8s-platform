@@ -1,0 +1,41 @@
+---
+- name: Configure Load Generator VM
+  hosts: loadgen
+  become: yes
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Wait for Docker to be ready
+      wait_for:
+        timeout: 10
+
+    - name: Pull load generator image
+      docker_image:
+        name: us-central1-docker.pkg.dev/google-samples/microservices-demo/loadgenerator:v0.10.3
+        source: pull
+        state: present
+
+    - name: Run load generator container
+      docker_container:
+        name: loadgen
+        image: us-central1-docker.pkg.dev/google-samples/microservices-demo/loadgenerator:v0.10.3
+        state: started
+        restart_policy: unless-stopped
+        env:
+          FRONTEND_ADDR: "130.211.53.68:80"
+          USERS: "20"
+          RATE: "5"
