@@ -2,21 +2,21 @@
 
 Cloud Computing project for the M2 MoSIG program at Grenoble INP - Ensimag (2025-2026).
 
-The goal was to deploy and operate Google's Online Boutique (11 microservices) on GKE. The base app was given to us. Everything else (IaC, monitoring, load testing, canary deployments, autoscaling, custom microservice) was built from scratch.
+The goal was to deploy and operate Google's Online Boutique (11 microservices) on GKE. The base app was given. Everything else (IaC, monitoring, load testing, canary deployments, autoscaling, custom microservice) was built from scratch.
 
 Full report with screenshots and results: [report.pdf](./report.pdf)
 
 ---
 
-## What we built
+## What got built
 
 ### Cluster setup
 
-3-node GKE cluster, Standard mode, e2-medium, europe-west1-b. The default resource requests were too high for the nodes so we ended up using Kustomize overlays to tune CPU requests on non-critical services. No changes to the original manifests.
+3-node GKE cluster, Standard mode, e2-medium, europe-west1-b. The default resource requests were too high for the nodes so Kustomize overlays were used to tune CPU requests on non-critical services. No changes to the original manifests.
 
 ### Infrastructure as Code
 
-We did the load generator VM two ways:
+The load generator VM was done two ways:
 
 - Terraform only, with a startup script baked in
 - Terraform + Ansible, clean separation between provisioning and config management
@@ -25,31 +25,31 @@ Both are documented and in the repo.
 
 ### Monitoring
 
-kube-prometheus-stack via Helm. Grafana dashboards at the cluster, node, and pod level. We also added a Redis exporter with a ServiceMonitor for DB-specific metrics, and wrote 5 custom alert rules covering CPU, memory, pod restarts, and Redis availability.
+kube-prometheus-stack via Helm. Grafana dashboards at the cluster, node, and pod level. A Redis exporter with a ServiceMonitor was added for DB-specific metrics, along with 5 custom alert rules covering CPU, memory, pod restarts, and Redis availability.
 
 ### Load testing
 
-Locust on a GCP VM in the same zone as the cluster. We ran it for 22 hours:
+Locust on a GCP VM in the same zone as the cluster. 22-hour sustained test:
 
 - 351,603 requests
 - 99.89% success rate
 - 27ms average response time
 
-We also ran it from a laptop as a sanity check: 956ms average, 2.61% failure rate. The gap makes it obvious why you want your load generator close to the cluster.
+Running from a laptop as a sanity check gave 956ms average and 2.61% failure rate. The gap makes it obvious why the load generator needs to be close to the cluster.
 
 ### Canary deployment
 
-We did a progressive rollout on the recommendation service: 33% to v2, then adjusted to 25%, then full switch to 100%. Zero downtime. Each step was monitored in Grafana before moving on.
+Progressive rollout on the recommendation service: 33% to v2, adjusted to 25%, then full switch to 100%. Zero downtime. Each step was monitored in Grafana before moving on.
 
 ### Horizontal Pod Autoscaling
 
 HPA on the frontend (50% CPU target, 1 to 3 replicas). Under load it triggered at 96% CPU and scaled to 3 replicas in under a minute.
 
-One thing that caught us off guard: CPU requests were sitting at 93.3% committed while actual usage was only 10.6%. The scheduler saw no room even though the nodes were mostly idle. Good illustration of the difference between scheduling capacity and actual performance headroom.
+One interesting issue: CPU requests were sitting at 93.3% committed while actual usage was only 10.6%. The scheduler saw no room even though the nodes were mostly idle. Good illustration of the difference between scheduling capacity and actual performance headroom.
 
 ### Custom microservice
 
-OrderLog service, written in Python with Flask. Logs orders to Redis and exposes a query endpoint. Deployed on the cluster with its own manifests, reuses the existing Redis instance.
+OrderLog service written in Python with Flask. Logs orders to Redis and exposes a query endpoint. Deployed on the cluster with its own manifests, reuses the existing Redis instance.
 
 ---
 
