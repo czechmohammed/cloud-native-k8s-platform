@@ -1,42 +1,59 @@
 # cloud-native-k8s-platform
 
-Deployment and operation of a microservices application on Google Kubernetes Engine, done as part of the M2 MoSIG Cloud Computing course at Grenoble INP - Ensimag (2025-2026).
+Cloud Computing project for the M2 MoSIG program at Grenoble INP - Ensimag (2025-2026).
 
-The base application is Google's Online Boutique (11 microservices). Everything around it — IaC, monitoring, load testing, canary deployments, autoscaling, and a custom microservice — was built and configured from scratch.
+The goal was to deploy and operate Google's Online Boutique (11 microservices) on GKE. The base app was given to us. Everything else (IaC, monitoring, load testing, canary deployments, autoscaling, custom microservice) was built from scratch.
 
-The full lab report is available in [report.pdf](./report.pdf).
+Full report with screenshots and results: [report.pdf](./report.pdf)
 
-## What was built
+---
 
-**Cluster and application deployment**
-3-node GKE cluster (Standard mode, e2-medium, europe-west1-b). Ran into resource capacity issues with the default config, solved them using Kustomize overlays to reduce CPU requests on non-critical services without touching the original manifests.
+## What we built
 
-**Infrastructure as Code**
-Two approaches for the load generator VM, both documented:
-- Terraform only, using a startup script
-- Terraform + Ansible, with proper separation between infra provisioning and configuration management
+### Cluster setup
 
-**Monitoring**
-Deployed kube-prometheus-stack via Helm. Set up cluster, node, and pod-level Grafana dashboards. Added a Redis exporter with a ServiceMonitor for database-specific metrics. Wrote 5 custom Prometheus alert rules (CPU, memory, pod restarts, Redis availability).
+3-node GKE cluster, Standard mode, e2-medium, europe-west1-b. The default resource requests were too high for the nodes so we ended up using Kustomize overlays to tune CPU requests on non-critical services. No changes to the original manifests.
 
-**Load testing**
-Locust deployed on a GCP VM in the same zone as the cluster. Ran a 22-hour sustained test:
+### Infrastructure as Code
+
+We did the load generator VM two ways:
+
+- Terraform only, with a startup script baked in
+- Terraform + Ansible, clean separation between provisioning and config management
+
+Both are documented and in the repo.
+
+### Monitoring
+
+kube-prometheus-stack via Helm. Grafana dashboards at the cluster, node, and pod level. We also added a Redis exporter with a ServiceMonitor for DB-specific metrics, and wrote 5 custom alert rules covering CPU, memory, pod restarts, and Redis availability.
+
+### Load testing
+
+Locust on a GCP VM in the same zone as the cluster. We ran it for 22 hours:
+
 - 351,603 requests
 - 99.89% success rate
 - 27ms average response time
 
-Running the load generator locally (from my laptop) gave 956ms average and 2.61% failures — the difference shows how much network proximity matters for accurate benchmarks.
+We also ran it from a laptop as a sanity check: 956ms average, 2.61% failure rate. The gap makes it obvious why you want your load generator close to the cluster.
 
-**Canary deployment**
-Progressive traffic shift on the recommendation service: 33% to v2, adjusted to 25%, then full rollout to 100%. No downtime throughout. Each phase monitored via Grafana.
+### Canary deployment
 
-**Horizontal Pod Autoscaling**
-HPA on the frontend service (target: 50% CPU, min 1 replica, max 3). Validated under load: triggered at 96% CPU, scaled to 3 replicas in under a minute. Ran into an interesting issue — CPU requests were committed at 93.3% while actual CPU usage was only 10.6%, which blocked the scheduler from placing new pods. Documents the difference between scheduling capacity and performance capacity.
+We did a progressive rollout on the recommendation service: 33% to v2, then adjusted to 25%, then full switch to 100%. Zero downtime. Each step was monitored in Grafana before moving on.
 
-**Custom microservice**
-Built an OrderLog service from scratch (Python, Flask) that logs orders to Redis and exposes a query endpoint. Deployed on the cluster with its own Kubernetes manifests. Uses the existing Redis instance so no extra infrastructure needed.
+### Horizontal Pod Autoscaling
 
-## Results
+HPA on the frontend (50% CPU target, 1 to 3 replicas). Under load it triggered at 96% CPU and scaled to 3 replicas in under a minute.
+
+One thing that caught us off guard: CPU requests were sitting at 93.3% committed while actual usage was only 10.6%. The scheduler saw no room even though the nodes were mostly idle. Good illustration of the difference between scheduling capacity and actual performance headroom.
+
+### Custom microservice
+
+OrderLog service, written in Python with Flask. Logs orders to Redis and exposes a query endpoint. Deployed on the cluster with its own manifests, reuses the existing Redis instance.
+
+---
+
+## Numbers
 
 | metric | value |
 |---|---|
@@ -47,28 +64,35 @@ Built an OrderLog service from scratch (Python, Flask) that logs orders to Redis
 | HPA scale-up time | under 1 minute |
 | cluster CPU actual usage | 10.6% |
 
+---
+
 ## Stack
 
 Kubernetes (GKE Standard), Terraform, Ansible, Kustomize, Prometheus, Grafana, Alertmanager, Helm, Locust, Docker, Python/Flask, GCP (europe-west1)
 
-## Repository structure
-kubernetes-manifests/       K8s manifests for all 11 microservices
-custom-config/              Kustomize overlay for resource optimization
-canary-deployment/          v1/v2 split config for canary rollout
-terraform-ansible-loadgen/  IaC for the load generator VM (Terraform + Ansible)
-terraform-loadgen-main.tf   Terraform-only variant with startup script
-orderlog/                   Custom OrderLog microservice (Python/Flask)
-orderlog-deployment.yaml    K8s deployment for OrderLog
-prometheus-alerts.yaml      5 custom alert rules
-redis-exporter.yaml         Redis exporter and ServiceMonitor
-simulate-orders.sh          Script to test order logging
-report.pdf                  Full lab report with all results and screenshots
+---
+
+## Repo structure
+
+    kubernetes-manifests/       manifests for all 11 microservices
+    custom-config/              Kustomize overlay for resource tuning
+    canary-deployment/          v1/v2 traffic split config
+    terraform-ansible-loadgen/  load generator VM (Terraform + Ansible)
+    terraform-loadgen-main.tf   Terraform-only variant
+    orderlog/                   OrderLog microservice (Python/Flask)
+    orderlog-deployment.yaml    K8s deployment for OrderLog
+    prometheus-alerts.yaml      5 custom alert rules
+    redis-exporter.yaml         Redis exporter + ServiceMonitor
+    simulate-orders.sh          quick script to test order logging
+    report.pdf                  full report with all results and screenshots
+
+---
 
 ## How to deploy
 
-You need gcloud, kubectl, terraform, ansible, and helm.
+You need: gcloud, kubectl, terraform, ansible, helm.
 
-Create the cluster:
+**Cluster**
 ```bash
 gcloud container clusters create my-cluster \
   --zone europe-west1-b \
@@ -76,12 +100,12 @@ gcloud container clusters create my-cluster \
   --machine-type e2-medium
 ```
 
-Deploy the app with resource optimization:
+**App**
 ```bash
 kubectl apply -k custom-config/
 ```
 
-Deploy monitoring:
+**Monitoring**
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
@@ -91,20 +115,22 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
   --set prometheus.prometheusSpec.retention=7d
 ```
 
-Deploy custom components:
+**Custom components**
 ```bash
 kubectl apply -f redis-exporter.yaml
 kubectl apply -f prometheus-alerts.yaml
 kubectl apply -f orderlog-deployment.yaml
 ```
 
-Deploy the load generator on a GCP VM:
+**Load generator**
 ```bash
 cd terraform-ansible-loadgen
 terraform init && terraform apply
-# update inventory.ini with the VM IP
+# put the VM IP in inventory.ini
 ansible-playbook playbook.yml
 ```
+
+---
 
 ## Course
 
